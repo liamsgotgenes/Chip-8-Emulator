@@ -3,10 +3,9 @@
 #include <string.h>
 #include <SDL/SDL.h>
 
-#define CARRY 0x000F
+#define CARRY 0xF
 #define SHIFT1(opcode) ((opcode & 0x00F0) >> 4)
 #define SHIFT2(opcode) ((opcode & 0x0F00) >> 8)
-#define SHIFT3(opcode) ((opcode & 0xF000) >> 12)
 
 unsigned char delay_timer,sound_timer;
 unsigned char memory[4096];
@@ -46,16 +45,14 @@ void execute_cycle(){
     unsigned h,p;
     Uint8 *keys;
 
-    opcode=( (memory[pc] << 8 ) | memory[pc+1]);
+    opcode=( (memory[pc] << 8 ) | memory[pc+1]); //fetches the next opcode
 
-    printf("Executing %04X at %04X , I:%02X SP:%02X\n",opcode,pc,I,sp);
-
+    printf("%04X %04X %02X %02X\n",opcode,pc,I,sp);
     switch (opcode & 0xF000){
         case (0x000):
             switch (opcode & 0x000F){
                 case (0x0000): //00E0; clear screen
-                    for (i=0;i<sizeof(gfx);i++)
-                        gfx[i]=0;
+                    memset(gfx,0,sizeof(gfx));
                     draw=1;
                     pc+=2;
                 break;
@@ -80,7 +77,7 @@ void execute_cycle(){
             stack[sp]=pc;
             sp++;
             //go to subroutine
-            pc=memory[ opcode & 0x0FFF ];
+            pc=opcode & 0x0FFF;
         break;
 
         case (0x3000): //3XNN; skip the next instruction if V[X] == NN
@@ -134,18 +131,18 @@ void execute_cycle(){
                 break;
 
                 case (0x0004): //8XY4; adds V[X] to V[Y] changes the carry flag if needed
-                    if ( V[ SHIFT2(opcode) ] + V[ SHIFT1(opcode) ] < 256 ){
+                    if ( ((int)V[ SHIFT2(opcode) ] + (int)V[ SHIFT1(opcode) ]) < 256 ){
                         V[CARRY]=0;
                     }
                     else{
                         V[CARRY]=1;
                     }
-                    V[ SHIFT1(opcode) ] += V[ SHIFT2(opcode) ];
+                    V[ SHIFT2(opcode) ] += V[ SHIFT1(opcode) ];
                     pc+=2;
                 break;
 
                 case (0x0005): //8XY5; V[Y] is subtracted from V[X] and carry is set to 0 if there is a borrow
-                    if ( V[ SHIFT2(opcode) ] - V[ SHIFT1(opcode) ] >= 0 ){
+                    if ( ((int)V[ SHIFT2(opcode) ] - (int)V[ SHIFT1(opcode) ]) >= 0 ){
                         V[ CARRY ] = 1;
                     }
                     else{
@@ -162,11 +159,11 @@ void execute_cycle(){
                 break;
 
                 case (0x0007): //8XY7; sets V[X] to V[Y]-V[X]. Carry is set to zero if there is a borrow
-                    if ( V[ SHIFT2(opcode) ] - V[ SHIFT1(opcode) ] >= 0 ){
-                        V[ CARRY ] = 0;
+                    if ( ((int)V[ SHIFT2(opcode) ] - (int)V[ SHIFT1(opcode) ] >= 0 )){
+                        V[ CARRY ] = 1;
                     }
                     else{
-                        V[ CARRY ] = 1;
+                        V[ CARRY ] = 0;
                     }
                     V[ SHIFT2(opcode) ] = V[ SHIFT1(opcode) ] - V[ SHIFT2(opcode) ];
                     pc+=2;
@@ -196,15 +193,16 @@ void execute_cycle(){
         break;
 
         case (0xC000): //CXNN; sets V[X] to random number < 256 AND NN
-            V[ SHIFT2(opcode) ] = ( rand() % 257 ) & ( opcode & 0x00FF);
+            V[ SHIFT2(opcode) ] = ( rand() % 257 ) & ( opcode & 0x00FF );
             pc+=2;
         break;
 
         case (0xD000): //DXYN; draws sprite at (V[X],V[Y]) with a width of 8 and a height of N
+            draw=1;
             j=V[ SHIFT2(opcode) ];
             k=V[ SHIFT1(opcode) ];
             h=opcode & 0x000F;
-            V[0xF]&=0;
+            V[0xF]=0;
 
             for (y=0;y<h;y++){
                 p=memory[I+y];
@@ -246,6 +244,13 @@ void execute_cycle(){
                 break;
 
                 case (0x000A): //FX0A; keypress is awaited (halt) and then stored in V[X]
+                    keys=SDL_GetKeyState(NULL);
+                    for (i=0;i<10;i++){
+                        if (keys[i]){
+                            V[ SHIFT2(opcode) ] = i;
+                            pc+=2;
+                        }
+                    }
                 break;
 
                 case (0x0015): //FX15; sets delay timer to V[X]
@@ -272,6 +277,7 @@ void execute_cycle(){
                     memory[I] = V[ SHIFT2(opcode) ] / 100;
                     memory[I+1] = (V[ SHIFT2(opcode) ]/10) % 10;
                     memory[I+2] = V[ SHIFT2(opcode) ] % 10;
+                    pc+=2;
                 break;
 
                 case (0x0055): //FX55; stores V[0] through V[X] in memory starting at memory[I]. I is incremented
@@ -282,7 +288,7 @@ void execute_cycle(){
                 break;
 
                 case (0x0065): //FX65 fills V[0] through V[X] with values from memory starting at memory[I] I is incremented
-                    for (i=0;i<SHIFT2(opcode);i++){
+                    for (i=0;i<=SHIFT2(opcode);i++){
                         V[i] = memory[I+i];
                     }
                     pc+=2;
@@ -305,17 +311,18 @@ void draw_screen(){
     memset(screen,0,surface->w * surface->h * sizeof(Uint32));
     for (i=0;i<320;i++){
         for (j=0;j<640;j++){
-            screen[j + i *surface->w] = gfx[(j/10) + (i/10) * 64] ? 0xFFFFFFFF : 0;
+            screen[j + i *surface->w] = gfx[(j/10) + (i/10) * 64] ? 0xFFFFFF : 0;
         }
     }
     SDL_UnlockSurface(surface);
     SDL_Flip(surface);
-    SDL_Delay(15);
+    SDL_Delay(10);
+    draw=0;
 }
 
 void set_up(){
-    pc=0x200;
-    opcode=0x200;
+    pc=512;
+    opcode=512;
     sp=0;
     memset(V,0,16);
     memset(stack,0,sizeof(stack));
@@ -338,8 +345,9 @@ void load_game(char *game){
         fprintf(stderr,"Could not open %s\n",game);
         exit(0);
     }
-    fread(memory+0x200,1,4096-0x200,file);
+    fread(memory+512,1,4096-512,file);
     fclose(file);
+    free(game);
 }
 
 void run(){
@@ -347,7 +355,7 @@ void run(){
     while (1){
         if (SDL_PollEvent(&event)) continue;
         execute_cycle();
-        draw_screen();
+        if (draw)draw_screen();
 
         //quits on esc
         Uint8 *keys=SDL_GetKeyState(NULL);
@@ -357,7 +365,11 @@ void run(){
 }
 
 int main(){
+    char *game=malloc(sizeof(char)*64);
+    printf("Enter the path to the game: ");
+    fgets(game,64,stdin);
+    game[strlen(game)-1]='\0'; //gets rid of newline char
     set_up();
-    load_game("demo.c8");
+    load_game(game);
     run();
 }
