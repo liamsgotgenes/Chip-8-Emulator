@@ -7,3 +7,7 @@ The CHIP-8 interpertered language contains 35 operation codes, all of which are 
 
 A further, more in-depth description of the system can be found here: https://en.wikipedia.org/wiki/CHIP-8
 Games/ROMS can be downloaded here: https://github.com/dmatlack/chip8/tree/master/roms
+
+Require SDL to run. 
+`sudo apt-get install libsdl-dev1.2` for Debian based distros.
+`sudo yum install libsdl-dev1.2` for Red Hat based distros.
